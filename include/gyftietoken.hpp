@@ -58,6 +58,7 @@ CONTRACT gyftietoken : public contract
     ACTION unstaked (const name user, const asset quantity); 
     ACTION unstaked2 (const name user, const asset quantity); 
     ACTION stake (const name account, const asset quantity);
+    ACTION claim (const name challenger, const name accused) ;
 
     ACTION calcgyft(name from, name to);
 
@@ -582,6 +583,18 @@ CONTRACT gyftietoken : public contract
     //     });
     // }
 
+    void unstake_admin (name account, asset quantity) 
+    {
+        profile_table p_t (get_self(), get_self().value);
+        auto p_itr = p_t.find (account.value);
+        eosio::check (p_itr != p_t.end(), "Account profile not found.");
+                
+        p_t.modify (p_itr, get_self(), [&](auto &p) {
+            p.gft_balance += quantity;
+            p.staked_balance -= quantity;
+        });
+    }
+
     void unstake (name account, asset quantity) 
     {
         //add_balance (account, quantity, get_self());
@@ -608,6 +621,8 @@ CONTRACT gyftietoken : public contract
 
     void permit_account (name account)
     {
+        if ( has_auth (get_self())) return;
+
         eosio::check ( is_gyftie_account (account), "Account is not a GFT token holder.");
 
         lock_table l_t (get_self(), get_self().value);
@@ -618,7 +633,7 @@ CONTRACT gyftietoken : public contract
         auto c_itr = c_t.find(account.value);
 
         if (c_itr != c_t.end()) {
-            eosio::check (c_itr->challenged_time <= current_block_time().to_time_point().sec_since_epoch() + 60 * 60 * 24 * 7, "Account is locked until it is re-validated.");
+            eosio::check (c_itr->challenged_time == 0, "Account has been challenged.");
         }       
     }
 

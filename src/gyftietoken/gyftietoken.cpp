@@ -342,21 +342,24 @@ ACTION gyftietoken::ibpromo (const name account, const asset gftamount, const as
     print (" GFT Buy Orders : ", gftbuyorders, "\n");
     print (" GFT Symbol     : ", gftamount.symbol.code().raw(), "\n");
 
-    stats s_t (get_self(), gftamount.symbol.code().raw());
-    auto s_itr = s_t.find (gftamount.symbol.code().raw());
-    eosio::check (s_itr != s_t.end(), "GFT token not found.");
+    // stats s_t (get_self(), gftamount.symbol.code().raw());
+    // auto s_itr = s_t.find (gftamount.symbol.code().raw());
+    // eosio::check (s_itr != s_t.end(), "GFT token not found.");
 
-    asset total_gft = s_itr->supply;
-    float denominator = (float) 20 + ( (float) p.promo_count / (float) 10);
-    float share_of_order_book = (float) gftamount.amount / (float) gftbuyorders.amount;
-    float adjustment = (float) share_of_order_book / (float) denominator;
+    // asset total_gft = s_itr->supply;
+    float adjustment = (float) 0.20 - ( (float) p.promo_count / (float) 1000);
+    
+    
+    // float share_of_order_book = (float) gftamount.amount / (float) gftbuyorders.amount;
+    // float adjustment = (float) share_of_order_book / (float) denominator;
 
-    print (" total gft: ", total_gft, "\n");
-    print (" demoniator: ", std::to_string(denominator), "\n");
-    print (" share of order book: ", std::to_string(share_of_order_book), "\n");
+    //print (" total gft: ", total_gft, "\n");
+    // print (" ignore\n");
+    // print (" demoniator: ", std::to_string(denominator), "\n");
+    // print (" share of order book: ", std::to_string(share_of_order_book), "\n");
     print (" adjustment: ", std::to_string(adjustment), "\n");
         
-    asset gft_reward = adjust_asset (total_gft, adjustment);
+    asset gft_reward = adjust_asset (gftamount, adjustment);
     print (" GFT Reward : ", gft_reward,"\n");
 
     string memo { "Liquidity reward / Instant buy bonus "};
@@ -372,6 +375,8 @@ ACTION gyftietoken::ibpromo (const name account, const asset gftamount, const as
         std::make_tuple(c.gyftie_foundation, gft_reward, memo))
     .send();
 
+    p.promo_count++;
+    promo_t.set (p, get_self());
 
 }
 
@@ -603,10 +608,73 @@ ACTION gyftietoken::addcnote (const name scribe, const name challenged_account, 
     });
 }
 
+ACTION gyftietoken::claim (const name challenger, const name accused) 
+{
+    require_auth (challenger);
+    permit_account (challenger);
+    check ( is_gyftie_account (challenger), "Challenger is not a Gyftie account.");
+
+    challenge_table c_t (get_self(), get_self().value);
+    auto c_itr = c_t.find (accused.value);
+    check (c_itr != c_t.end(), "Challenge is not found.");
+    check (c_itr->challenger_account == challenger, "Only original challenger can claim the challenge bounty: " + challenger.to_string());
+    check (c_itr->challenged_time + (60 * 60 * 72) < current_block_time().to_time_point().sec_since_epoch(), 
+        "Claim attempt too early. The accused account has more time to be validated before you can claim their GFT.");
+
+    profile_table p_t (get_self(), get_self().value);
+    auto p_itr = p_t.find (accused.value);
+    check (p_itr != p_t.end(), "Accused account does not have a profile.");
+
+    string memo { "Transfer based on successful challenge of account: " + accused.to_string() };
+    if (p_itr->staked_balance.amount > 0) {
+        unstake_admin (accused, p_itr->staked_balance);
+        asset staked_challenger_amt = adjust_asset (p_itr->staked_balance, 0.5000000000);
+        asset staked_community_amt = p_itr->staked_balance - staked_challenger_amt;
+
+        if (staked_challenger_amt.amount > 0) {
+            eosio::transaction out{};
+            out.actions.emplace_back(permission_level{get_self(), "owner"_n}, 
+                get_self(), "transfer"_n, 
+                std::make_tuple(accused, challenger, staked_challenger_amt, memo));
+            out.delay_sec = 2;
+            out.send(get_next_sender_id(), get_self());  
+        }
+
+        if (staked_community_amt.amount > 0) {
+            eosio::transaction out{};
+            out.actions.emplace_back(permission_level{get_self(), "owner"_n}, 
+                get_self(), "transfer"_n, 
+                std::make_tuple(accused, get_self(), staked_community_amt, memo));
+            out.delay_sec = 2;
+            out.send(get_next_sender_id(), get_self());  
+        }
+    }
+
+    asset challenger_amount = adjust_asset (p_itr->gft_balance, 0.5000000000);
+    asset community_amount = p_itr->gft_balance - challenger_amount;
+
+    if (challenger_amount.amount > 0) {
+        action (
+            permission_level{get_self(), "owner"_n},
+            get_self(), "transfer"_n,
+            std::make_tuple(accused, challenger, challenger_amount, memo))
+        .send();   
+    }
+
+    if (community_amount.amount > 0) {
+        action (
+            permission_level{get_self(), "owner"_n},
+            get_self(), "transfer"_n,
+            std::make_tuple(accused, get_self(), community_amount, memo))
+        .send();   
+    }
+}
+
 ACTION gyftietoken::validate (const name validator, const name account, const string idhash, const string id_expiration)
 {
     permit_account(validator);
-    permit_validator(validator, account);
+    // permit_validator(validator, account);
+    require_any_signatory();
     require_auth (validator);
     eosio::check (is_tokenholder (validator), "Validator is not a GFT token holder.");
     eosio::check (! is_paused(), "Contract is paused." );
@@ -621,9 +689,8 @@ ACTION gyftietoken::validate (const name validator, const name account, const st
     auto c_itr = c_t.find (account.value);
     eosio::check (c_itr != c_t.end(), "Account does not have an active challenge.");
 
-    // DEPLOY
-    requnstake (c_itr->challenger_account, c_itr->challenge_stake);
-    //unstake (c_itr->challenger_account, c_itr->challenge_stake);
+    //requnstake (c_itr->challenger_account, c_itr->challenge_stake);
+    unstake_admin (c_itr->challenger_account, c_itr->challenge_stake);
 
     asset validator_amount = adjust_asset (c_itr->challenge_stake, (float) 0.200000000);
     asset challenged_amount = adjust_asset (c_itr->challenge_stake, (float) 0.400000000);
@@ -633,23 +700,32 @@ ACTION gyftietoken::validate (const name validator, const name account, const st
     string to_challenged_memo = string { "GFT-reward to the Challenged-then-Validated Account. See 'How Gyftie Works' document - ask us for link." };   
     string redistribution_memo = string { "Seized asset redistribution. See 'How Gyftie Works' document - ask us for link." };
     
-    action (
-        permission_level{get_self(), "owner"_n},
-        get_self(), "transfer"_n,
-        std::make_tuple(c_itr->challenger_account, validator, validator_amount, to_validator_memo))
-    .send();
+    if (validator_amount.amount > 0) {
+        eosio::transaction out{};
+        out.actions.emplace_back(permission_level{get_self(), "owner"_n}, 
+            get_self(), "transfer"_n, 
+            std::make_tuple(c_itr->challenger_account, validator, validator_amount, to_validator_memo));
+        out.delay_sec = 2;
+        out.send(get_next_sender_id(), get_self());  
+    }
 
-    action (
-        permission_level{get_self(), "owner"_n},
-        get_self(), "transfer"_n,
-        std::make_tuple(c_itr->challenger_account, c_itr->challenged_account, challenged_amount, to_challenged_memo))
-    .send();
+    if (challenged_amount.amount > 0) {
+        eosio::transaction out{};
+        out.actions.emplace_back(permission_level{get_self(), "owner"_n}, 
+            get_self(), "transfer"_n, 
+            std::make_tuple(c_itr->challenger_account, c_itr->challenged_account, challenged_amount, to_challenged_memo));
+        out.delay_sec = 4;
+        out.send(get_next_sender_id(), get_self());  
+    }
 
-    action (
-        permission_level{get_self(), "owner"_n},
-        get_self(), "transfer"_n,
-        std::make_tuple(c_itr->challenger_account, get_self(), redistribution_amount, redistribution_memo))
-    .send();
+    if (redistribution_amount.amount > 0) {
+        eosio::transaction out{};
+        out.actions.emplace_back(permission_level{get_self(), "owner"_n}, 
+            get_self(), "transfer"_n, 
+            std::make_tuple(c_itr->challenger_account, get_self(), redistribution_amount, redistribution_memo));
+        out.delay_sec = 6;
+        out.send(get_next_sender_id(), get_self());  
+    }
 
     c_t.erase (c_itr);    
 }
@@ -1112,4 +1188,4 @@ ACTION gyftietoken::requnstake (const name user, const asset quantity)
 EOSIO_DISPATCH(gyftietoken, (setconfig)(delconfig)(create)(issue)(transfer)(calcgyft)(unlockchain)(removetprofs)(unstaked2)(xferzj) //(upperm) //(copygyfts1)(copygyfts2)(deloriggyfts)
                             (gyft)(propose)(votefor)(voteagainst)(pause)(unpause)(addrating)(requnstake)(stake)(unstaked)(remsig)(addsig) //(sigupdate)
                             (removeprop)(ungyft)(gyft2)(setstate)(dchallenge)(chgthrottle)(issuetostake)(xfertostake)(addlock)(unlock)//(fixstake) //(fixstakes)
-                            (nchallenge)(validate)(addcnote)(addlockchain)(addlocknote)(ibpromo))
+                            (nchallenge)(validate)(addcnote)(addlockchain)(addlocknote)(ibpromo)(claim))

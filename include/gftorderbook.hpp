@@ -418,7 +418,7 @@ CONTRACT gftorderbook : public contract
         print("From             : ", name{from}, "\n");
         print("To               : ", name{to}, "\n");
         print("Amount           : ", token_amount, "\n");
-        print("Memo             : ", memo, "\n");
+        print("Memo             : ", memo, "\n\n");
 
         action(
             permission_level{from, "owner"_n},
