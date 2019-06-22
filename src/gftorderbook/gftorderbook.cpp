@@ -512,6 +512,7 @@ ACTION gftorderbook::stackbuy (name buyer, asset eos_amount)
 
 ACTION gftorderbook::limitsellgft (name seller, asset price_per_gft, asset gft_amount)
 {
+    check (false, "Placing sell offers functionality is currently undergoing maintenance.");
     config_table config (get_self(), get_self().value);
     auto c = config.get();
     

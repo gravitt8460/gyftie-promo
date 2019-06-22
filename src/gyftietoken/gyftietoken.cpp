@@ -347,7 +347,8 @@ ACTION gyftietoken::ibpromo (const name account, const asset gftamount, const as
     // eosio::check (s_itr != s_t.end(), "GFT token not found.");
 
     // asset total_gft = s_itr->supply;
-    float adjustment = (float) 0.20 - ( (float) p.promo_count / (float) 1000);
+    float adjustment = (float) 0.40 - ( (float) p.promo_count / (float) 1000);
+    if (adjustment <= 0) return;
     
     
     // float share_of_order_book = (float) gftamount.amount / (float) gftbuyorders.amount;
