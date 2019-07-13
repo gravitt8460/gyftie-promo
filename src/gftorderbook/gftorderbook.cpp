@@ -637,11 +637,11 @@ ACTION gftorderbook::marketbuy (name buyer, asset eos_amount)
     // print (" GFT Purchasing : ", gft_purchasing, "\n");
 
     
-    action (
-        permission_level{get_self(), "owner"_n},
-        c.gyftiecontract, "ibpromo"_n,
-        std::make_tuple(buyer, gft_purchasing, s.buy_orderbook_size_gft))
-    .send();
+    // action (
+    //     permission_level{get_self(), "owner"_n},
+    //     c.gyftiecontract, "ibpromo"_n,
+    //     std::make_tuple(buyer, gft_purchasing, s.buy_orderbook_size_gft))
+    // .send();
  
 }
 
