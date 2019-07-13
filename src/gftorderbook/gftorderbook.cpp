@@ -647,6 +647,8 @@ ACTION gftorderbook::marketbuy (name buyer, asset eos_amount)
 
 ACTION gftorderbook::marketsell (name seller, asset gft_amount) 
 {
+    check (false, "Instant sell order functionality is currently undergoing maintenance.");
+
     config_table config (get_self(), get_self().value);
     auto c = config.get();
 
